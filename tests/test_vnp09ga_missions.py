@@ -6,6 +6,14 @@ from VCD43NRT.VNP09GA import (
     normalize_mission,
     normalize_mission_priority,
 )
+from VCD43NRT.VIIRS import VIIRS
+from VCD43NRT.VIIRS_granule import VIIRSGranule
+from VCD43NRT.VNP09GA import VNP09GA
+from VCD43NRT.VNP09GA_granule import VNP09GAGranule
+from VCD43NRT.VJ109GA import VJ109GA
+from VCD43NRT.VJ109GA_granule import VJ109GAGranule
+from VCD43NRT.VJ209GA import VJ209GA
+from VCD43NRT.VJ209GA_granule import VJ209GAGranule
 
 
 def test_normalize_mission_aliases():
@@ -46,3 +54,13 @@ def test_mission_registry_contains_required_entries():
     assert VIIRS_MISSIONS["SNPP"].short_name == "VNP09GA"
     assert VIIRS_MISSIONS["NOAA20"].short_name == "JNP09GA"
     assert VIIRS_MISSIONS["NOAA21"].short_name == "SNP09GA"
+
+
+def test_viirs_class_hierarchy():
+    assert issubclass(VNP09GAGranule, VIIRSGranule)
+    assert issubclass(VJ109GAGranule, VIIRSGranule)
+    assert issubclass(VJ209GAGranule, VIIRSGranule)
+
+    assert issubclass(VNP09GA, VIIRS)
+    assert issubclass(VJ109GA, VIIRS)
+    assert issubclass(VJ209GA, VIIRS)
