@@ -38,12 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate one VNP43NRT granule at a specific MODLAND tile/date"
     )
-    parser.add_argument("--tile", required=True, help="MODLAND tile, e.g. h09v05")
-    parser.add_argument("--date", required=True, help="UTC date (YYYY-MM-DD)")
+    parser.add_argument("--tile", default="h08v05", help="MODLAND tile, e.g. h09v05")
+    parser.add_argument("--date", default="2026-10-10", help="UTC date (YYYY-MM-DD)")
     parser.add_argument(
         "--working-directory",
-        default="./scratch/vcd43nrt",
-        help="Working/output directory used by VNP43NRT (default: ./scratch/vcd43nrt)",
+        default="~/data/VCD43NRT",
+        help="Working/output directory used by VNP43NRT (default: ~/data/VCD43NRT)",
     )
     parser.add_argument(
         "--diagnostics",
