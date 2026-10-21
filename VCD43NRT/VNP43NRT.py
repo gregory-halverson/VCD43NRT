@@ -28,14 +28,20 @@ try:
     from .BRDF import bidirectional_reflectance
     from .SZA import calculate_SZA
     from .VIIRSDownloader import VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI
-    from .VNP09GA import VNP09GA, VNP09GAGranule, ALBEDO_COLORMAP, NDVI_COLORMAP, VIIRSUnavailableError
+    from .VNP09GA import VNP09GA
+    from .VNP09GA_granule import VNP09GAGranule
+    from .VIIRS_granule import ALBEDO_COLORMAP, NDVI_COLORMAP
+    from .VIIRS import VIIRSUnavailableError
     from .daterange import date_range
     from .timer import Timer
 except ImportError:  # pragma: no cover - legacy direct-import fallback
     from BRDF import bidirectional_reflectance
     from SZA import calculate_SZA
     from VIIRSDownloader import VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI
-    from VNP09GA import VNP09GA, VNP09GAGranule, ALBEDO_COLORMAP, NDVI_COLORMAP, VIIRSUnavailableError
+    from VNP09GA import VNP09GA
+    from VNP09GA_granule import VNP09GAGranule
+    from VIIRS_granule import ALBEDO_COLORMAP, NDVI_COLORMAP
+    from VIIRS import VIIRSUnavailableError
     from daterange import date_range
     from timer import Timer
 
