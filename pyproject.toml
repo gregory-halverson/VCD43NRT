@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "VCD43NRT"
+version = "0.1.0"
+description = "VIIRS/NRT albedo and NDVI product support"
+readme = "README.md"
+authors = [
+    { name = "Gregory H. Halverson", email = "gregory.h.halverson@jpl.nasa.gov" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "beautifulsoup4",
+    "colored-logging~=1.1.0",
+    "earthaccess",
+    "GEOS5FP~=2.21.0",
+    "h5py",
+    "matplotlib",
+    "modland",
+    "numpy",
+    "pandas",
+    "python-dateutil",
+    "rasters",
+    "requests",
+    "scikit-image",
+    "shapely",
+    "xmltodict",
+]
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "pytest>=6.0",
+    "pytest-cov",
+    "jupyter",
+    "twine",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+VCD43NRT = ["*.txt", "*.toml", "*.jl"]
+
+[tool.setuptools.packages.find]
+include = ["VCD43NRT"]
+exclude = []
+
+[project.urls]
+Homepage = "https://github.com/"
