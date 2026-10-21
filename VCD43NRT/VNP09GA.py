@@ -23,7 +23,7 @@ import rasters
 from rasters import Raster, RasterGrid, RasterGeometry, Point, Polygon
 from modland import generate_modland_grid, parsehv
 
-RETRIES = 6
+from .constants import *
 
 try:
     from .login import login
@@ -40,7 +40,7 @@ class VIIRSGranule:
 
     def __init__(self, filename: str, working_directory: str = None, products_directory: str = None):
         if working_directory is None:
-            working_directory = "."
+            working_directory = WORKING_DIRECTORY
 
         working_directory = abspath(expanduser(working_directory))
 
