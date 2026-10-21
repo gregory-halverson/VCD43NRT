@@ -55,6 +55,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Instantiate Julia project before processing",
     )
+    parser.add_argument(
+        "--mission",
+        default="SNPP",
+        help="VIIRS mission key: SNPP, NOAA20, or NOAA21",
+    )
+    parser.add_argument(
+        "--mission-priority",
+        default=None,
+        help="Comma-separated mission fallback order, e.g. SNPP,NOAA20,NOAA21",
+    )
+    parser.add_argument(
+        "--fallback-mode",
+        action="store_true",
+        help="Try missions in priority order until data is found",
+    )
     return parser
 
 
@@ -67,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     processor = VNP43NRT(
         working_directory=args.working_directory,
         initialize_julia=args.initialize_julia,
+        mission=args.mission,
+        mission_priority=args.mission_priority,
+        fallback_mode=args.fallback_mode,
     )
 
     granule_dir = processor.granule_directory(date_UTC=args.date, tile=args.tile)

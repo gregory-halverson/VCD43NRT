@@ -8,7 +8,7 @@ from datetime import date, timedelta, datetime
 from glob import glob
 from os.path import abspath, expanduser, join, basename, splitext, exists, dirname
 import os
-from typing import Union, List
+from typing import Optional, Sequence, Union, List
 import dateutil
 import numpy as np
 from dateutil import parser
@@ -313,6 +313,9 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
             VNP43NRT_staging_directory: str = None,
             GEOS5FP_connection: GEOS5FP = None,
             GEOS5FP_download: str = None,
+            mission: str = "SNPP",
+            mission_priority: Optional[Sequence[str]] = None,
+            fallback_mode: bool = False,
             initialize_julia: bool = False):
         if working_directory is None:
             working_directory = VNP09GA.DEFAULT_WORKING_DIRECTORY
@@ -336,7 +339,10 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
             working_directory=working_directory,
             download_directory=download_directory,
             products_directory=VNP09GA_directory,
-            mosaic_directory=mosaic_directory
+            mosaic_directory=mosaic_directory,
+            mission=mission,
+            mission_priority=mission_priority,
+            fallback_mode=fallback_mode,
         )
 
         if GEOS5FP_connection is None:
@@ -348,6 +354,9 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
         self.VNP43NRT_directory = VNP43NRT_directory
         self.GEOS5FP = GEOS5FP_connection
         self.VNP43NRT_staging_directory = VNP43NRT_staging_directory
+        self.mission = self.vnp09ga.mission
+        self.mission_priority = self.vnp09ga.mission_priority
+        self.fallback_mode = self.vnp09ga.fallback_mode
         self.initialize_julia = initialize_julia
 
     def __repr__(self):
@@ -623,6 +632,11 @@ class VNP43NRT(VIIRSDownloaderAlbedo, VIIRSDownloaderNDVI):
 
         granule_ID = f"VNP43NRT_A{date_UTC:%Y%j}_{tile}"
 
+        if self.fallback_mode:
+            granule_ID = f"{granule_ID}_JPSS"
+        elif self.mission != "SNPP":
+            granule_ID = f"{granule_ID}_{self.mission}"
+
         return granule_ID
 
     def granule_directory(
@@ -872,6 +886,26 @@ def main(argv=sys.argv):
         action="store_true"
     )
 
+    parser.add_argument(
+        "--mission",
+        dest="mission",
+        default="SNPP",
+        help="VIIRS mission key (SNPP, NOAA20, NOAA21)"
+    )
+
+    parser.add_argument(
+        "--mission-priority",
+        dest="mission_priority",
+        default=None,
+        help="Comma-separated fallback priority, e.g. SNPP,NOAA20,NOAA21"
+    )
+
+    parser.add_argument(
+        "--fallback-mode",
+        action="store_true",
+        help="Try missions in priority order until matching data is found"
+    )
+
     args = parser.parse_args(args=argv[1:])
 
     if args.start is not None:
@@ -893,12 +927,20 @@ def main(argv=sys.argv):
 
     working_directory = args.working_directory
     diagnostics = args.diagnostics
+    mission = args.mission
+    mission_priority = args.mission_priority
+    fallback_mode = args.fallback_mode
 
     date_message = f"on {cl.time(start)}" if start == end else f"from {cl.time(start)} to {cl.time(end)}"
     message = f"running VNP43NRT BRDF/NDVI/albedo at {cl.place(tile)} {date_message}"
     logger.info(message)
 
-    vnp43nrt = VNP43NRT(working_directory=working_directory)
+    vnp43nrt = VNP43NRT(
+        working_directory=working_directory,
+        mission=mission,
+        mission_priority=mission_priority,
+        fallback_mode=fallback_mode,
+    )
 
     start = dateutil.parser.parse(start).date()
     end = dateutil.parser.parse(end).date()

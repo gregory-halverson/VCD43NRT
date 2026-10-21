@@ -2,6 +2,8 @@
 
 VCD43NRT is a minimal Python package for working with near-real-time VIIRS/NRT BRDF, albedo, and NDVI products built around the `VNP43NRT`, `VNP43IA4`, and `VNP43MA3` classes.
 
+The data-access layer supports Suomi NPP plus equivalent JPSS VIIRS products for NOAA-20 and NOAA-21 through mission selection and mission-priority fallback.
+
 This repository intentionally contains only the code required for the VIIRS/NRT support layer: the Python package modules that access VIIRS granules through the Earthaccess/CMR path, the MODIS/VIIRS BRDF and solar geometry helpers, and the embedded Julia project used for the VNP43NRT processing path.
 
 The older ECOSTRESS L2T/STARS orchestration code and unrelated product-generation infrastructure have been removed so the package matches the current codebase rather than the earlier full pipeline.
@@ -94,6 +96,45 @@ Optional flags:
 
 - `--diagnostics` to also write diagnostic layers
 - `--initialize-julia` to instantiate the Julia project before processing
+- `--mission NOAA20` (or `NOAA21`) to force a specific JPSS mission
+- `--fallback-mode --mission-priority SNPP,NOAA20,NOAA21` to automatically try missions in order
+
+### Mission selection and fallback
+
+Default behavior is unchanged and uses Suomi NPP only:
+
+```python
+from VCD43NRT import VNP43NRT
+
+processor = VNP43NRT(working_directory="~/data/VCD43NRT")
+```
+
+To target one JPSS mission explicitly:
+
+```python
+processor = VNP43NRT(
+	working_directory="~/data/VCD43NRT",
+	mission="NOAA20",
+)
+```
+
+To enable automatic mission-priority fallback:
+
+```python
+processor = VNP43NRT(
+	working_directory="~/data/VCD43NRT",
+	fallback_mode=True,
+	mission_priority=["SNPP", "NOAA20", "NOAA21"],
+)
+```
+
+If NOAA-20/NOAA-21 concept IDs change or are unavailable by default in your environment,
+you can override them with environment variables:
+
+```bash
+export VCD43NRT_JNP09GA_CONCEPT_ID="<CMR_CONCEPT_ID>"
+export VCD43NRT_SNP09GA_CONCEPT_ID="<CMR_CONCEPT_ID>"
+```
 
 ## Notes
 

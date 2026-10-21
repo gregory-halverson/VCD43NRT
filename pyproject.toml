@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "VCD43NRT"
 version = "0.1.0"
-description = "VIIRS/NRT albedo and NDVI product support"
+description = "VIIRS/NRT albedo and NDVI product support across SNPP and JPSS missions"
 readme = "README.md"
 authors = [
     { name = "Gregory H. Halverson", email = "gregory.h.halverson@jpl.nasa.gov" },

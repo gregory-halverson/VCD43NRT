@@ -1,13 +1,14 @@
 import logging
 import os
 import warnings
+from dataclasses import dataclass
 from datetime import datetime, date
 from os import remove
 from os.path import exists, join, abspath, expanduser
 import re
 from pathlib import Path
 import tempfile
-from typing import List, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import earthaccess
 import h5py
@@ -113,6 +114,113 @@ NDVI_COLORMAP = LinearSegmentedColormap.from_list(
 ALBEDO_COLORMAP = "gray"
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class VIIRSMissionConfig:
+    key: str
+    display_name: str
+    short_name: str
+    product_prefix: str
+    concept_id_env: str
+    default_concept_id: Optional[str] = None
+
+    @property
+    def concept_id(self) -> Optional[str]:
+        override = os.environ.get(self.concept_id_env)
+        if override:
+            return override
+        return self.default_concept_id
+
+
+VIIRS_MISSIONS: Dict[str, VIIRSMissionConfig] = {
+    "SNPP": VIIRSMissionConfig(
+        key="SNPP",
+        display_name="Suomi NPP",
+        short_name="VNP09GA",
+        product_prefix="VNP",
+        concept_id_env="VCD43NRT_VNP09GA_CONCEPT_ID",
+        default_concept_id="C2631841556-LPCLOUD",
+    ),
+    "NOAA20": VIIRSMissionConfig(
+        key="NOAA20",
+        display_name="NOAA-20 (JPSS-1)",
+        short_name="JNP09GA",
+        product_prefix="JNP",
+        concept_id_env="VCD43NRT_JNP09GA_CONCEPT_ID",
+    ),
+    "NOAA21": VIIRSMissionConfig(
+        key="NOAA21",
+        display_name="NOAA-21 (JPSS-2)",
+        short_name="SNP09GA",
+        product_prefix="SNP",
+        concept_id_env="VCD43NRT_SNP09GA_CONCEPT_ID",
+    ),
+}
+
+DEFAULT_MISSION = "SNPP"
+DEFAULT_MISSION_PRIORITY: Tuple[str, ...] = ("SNPP", "NOAA20", "NOAA21")
+
+# Accept aliases so callers can use common mission labels.
+MISSION_ALIASES = {
+    "SNPP": "SNPP",
+    "SUOMI": "SNPP",
+    "SUOMINPP": "SNPP",
+    "NPP": "SNPP",
+    "NOAA20": "NOAA20",
+    "NOAA-20": "NOAA20",
+    "JPSS1": "NOAA20",
+    "JPSS-1": "NOAA20",
+    "N20": "NOAA20",
+    "NOAA21": "NOAA21",
+    "NOAA-21": "NOAA21",
+    "JPSS2": "NOAA21",
+    "JPSS-2": "NOAA21",
+    "N21": "NOAA21",
+}
+
+VIIRS_FILENAME_REGEX = re.compile(r"^(VNP|JNP|SNP)09GA\.[^.]+\.([^.]+)\.\d{3}\.\d+\.h5$")
+PREFIX_TO_MISSION = {
+    "VNP": "SNPP",
+    "JNP": "NOAA20",
+    "SNP": "NOAA21",
+}
+
+
+def normalize_mission(mission: str) -> str:
+    if mission is None:
+        return DEFAULT_MISSION
+
+    normalized = str(mission).strip().upper()
+    normalized = MISSION_ALIASES.get(normalized, normalized)
+
+    if normalized not in VIIRS_MISSIONS:
+        allowed = ", ".join(sorted(VIIRS_MISSIONS))
+        raise ValueError(f"Unknown VIIRS mission '{mission}'. Allowed values: {allowed}")
+
+    return normalized
+
+
+def normalize_mission_priority(
+        mission_priority: Optional[Sequence[str]],
+        mission: str,
+        fallback_mode: bool) -> Tuple[str, ...]:
+    if mission_priority is None:
+        if fallback_mode:
+            return DEFAULT_MISSION_PRIORITY
+        return (mission,)
+
+    if isinstance(mission_priority, str):
+        mission_priority = [entry.strip() for entry in mission_priority.split(",") if entry.strip()]
+
+    normalized = tuple(normalize_mission(entry) for entry in mission_priority)
+    if len(normalized) == 0:
+        raise ValueError("mission_priority cannot be empty")
+
+    # Deduplicate while preserving order.
+    ordered_unique = tuple(dict.fromkeys(normalized))
+
+    return ordered_unique
 
 class VIIRSUnavailableError(Exception):
     pass
@@ -1066,8 +1174,6 @@ class VNP09GAGranule(VIIRSGranule):
     albedo = property(get_albedo)
 
 
-VIIRS_CONCEPT = "C2631841556-LPCLOUD"
-
 def earliest_datetime(date_in: Union[date, str]) -> datetime:
     if isinstance(date_in, str):
         datetime_in = parser.parse(date_in)
@@ -1088,27 +1194,46 @@ def latest_datetime(date_in: Union[date, str]) -> datetime:
     return parser.parse(f"{date_string}T23:59:59Z")
 
 
-VIIRS_FILENAME_REGEX = re.compile(r"^VNP09GA\.[^.]+\.([^.]+)\.002\.\d+\.h5$")
-
 def modland_tile_from_filename(filename: str) -> str:
     match = VIIRS_FILENAME_REGEX.match(filename)
     if match is None:
         raise RuntimeError(f"Invalid filename found through VIIRS CMR search: {filename}")
 
-    return match.group(1)
+    return match.group(2)
+
+
+def mission_from_filename(filename: str) -> str:
+    match = VIIRS_FILENAME_REGEX.match(filename)
+    if match is None:
+        raise RuntimeError(f"Invalid filename found through VIIRS CMR search: {filename}")
+
+    mission = PREFIX_TO_MISSION.get(match.group(1))
+    if mission is None:
+        raise RuntimeError(f"Unsupported VIIRS mission prefix in filename: {filename}")
+
+    return mission
 
 
 # TODO: Deduplicate between VIIRS and HLS
 def VIIRS_CMR_query(
         start_date: Union[date, str],
         end_date: Union[date, str],
+        mission: str,
         target_geometry: Point or Polygon or RasterGeometry = None,
         tile: str = None,
 ) -> List[earthaccess.search.DataGranule]:
     """function to search for VIIRS at tile in date range"""
+    mission_key = normalize_mission(mission)
+    mission_config = VIIRS_MISSIONS[mission_key]
+
     query = earthaccess.granule_query() \
-        .concept_id(VIIRS_CONCEPT) \
         .temporal(earliest_datetime(start_date), latest_datetime(end_date))
+
+    concept_id = mission_config.concept_id
+    if concept_id:
+        query = query.concept_id(concept_id)
+    else:
+        query = query.short_name(mission_config.short_name)
 
     if isinstance(target_geometry, Point):
         query = query.point(target_geometry.x, target_geometry.y)
@@ -1134,10 +1259,10 @@ def VIIRS_CMR_query(
         raise CMRServerUnreachable(e)
     granules = sorted(granules, key=lambda granule: granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"])
 
-    logger.info("Found the following granules for VIIRS 2 using the CMR search:")
+    logger.info(f"Found the following granules for {mission_config.display_name} using the CMR search:")
     for granule in granules:
         logger.info("  " + cl.file(granule["meta"]["native-id"]))
-    logger.info(f"Number of VIIRS 2 granules found using CMR search: {len(granules)}")
+    logger.info(f"Number of {mission_config.display_name} granules found using CMR search: {len(granules)}")
 
     return granules
 
@@ -1157,14 +1282,23 @@ class VNP09GA:
             download_directory: str = None,
             products_directory: str = None,
             mosaic_directory: str = None,
+            mission: str = DEFAULT_MISSION,
+            mission_priority: Optional[Sequence[str]] = None,
+            fallback_mode: bool = False,
             resampling: str = None):
 
         if resampling is None:
             resampling = self.DEFAULT_RESAMPLING
 
         self.resampling = resampling
-
-        self._granules = pd.DataFrame(columns=["date_UTC", "tile", "granule"])
+        self.mission = normalize_mission(mission)
+        self.fallback_mode = bool(fallback_mode)
+        self.mission_priority = normalize_mission_priority(
+            mission_priority=mission_priority,
+            mission=self.mission,
+            fallback_mode=self.fallback_mode,
+        )
+        self._granules = pd.DataFrame(columns=["date_UTC", "tile", "mission", "granule"])
 
         if working_directory is None:
             working_directory = self.DEFAULT_WORKING_DIRECTORY
@@ -1193,17 +1327,108 @@ class VNP09GA:
 
         self.auth = login()
 
+    @property
+    def active_missions(self) -> Tuple[str, ...]:
+        return self.mission_priority if self.fallback_mode else (self.mission,)
+
+    @staticmethod
+    def _granule_filename(granule: earthaccess.search.DataGranule) -> str:
+        links = granule.data_links()
+        if len(links) == 0:
+            raise ValueError("granule is missing data links")
+        return Path(links[0]).name
+
+    def _download_output_path(self, granule: earthaccess.search.DataGranule) -> str:
+        filename = self._granule_filename(granule)
+        mission_key = mission_from_filename(filename)
+        mission_cfg = VIIRS_MISSIONS[mission_key]
+        date_UTC = get_date(granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"])
+
+        return join(
+            self.download_directory,
+            mission_cfg.short_name,
+            f"{date_UTC:%Y.%m.%d}",
+            filename,
+        )
+
+    def _search_for_mission(
+            self,
+            mission: str,
+            start_date: Union[date, str],
+            end_date: Union[date, str],
+            geometry: Point or Polygon or RasterGeometry = None,
+            tile: str = None) -> List[earthaccess.search.DataGranule]:
+        return VIIRS_CMR_query(
+            start_date=start_date,
+            end_date=end_date,
+            mission=mission,
+            target_geometry=geometry,
+            tile=tile,
+        )
+
+    def _search_with_fallback(
+            self,
+            start_date: Union[date, str],
+            end_date: Union[date, str],
+            geometry: Point or Polygon or RasterGeometry = None,
+            tile: str = None) -> List[earthaccess.search.DataGranule]:
+        if tile is not None:
+            for mission_key in self.active_missions:
+                granules = self._search_for_mission(
+                    mission=mission_key,
+                    start_date=start_date,
+                    end_date=end_date,
+                    geometry=geometry,
+                    tile=tile,
+                )
+                if len(granules) > 0:
+                    return granules
+            return []
+
+        granules_by_key: Dict[Tuple[date, str], earthaccess.search.DataGranule] = {}
+        for mission_key in self.active_missions:
+            granules = self._search_for_mission(
+                mission=mission_key,
+                start_date=start_date,
+                end_date=end_date,
+                geometry=geometry,
+            )
+
+            for granule in granules:
+                filename = self._granule_filename(granule)
+                key = (
+                    get_date(granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"]),
+                    modland_tile_from_filename(filename),
+                )
+                # First mission in priority wins for a date/tile key.
+                if key not in granules_by_key:
+                    granules_by_key[key] = granule
+
+        return sorted(
+            granules_by_key.values(),
+            key=lambda granule: granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"],
+        )
+
     def add_granules(self, granules: List[earthaccess.search.DataGranule]):
         data = pd.DataFrame([
             {
                 "date_UTC": get_date(granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"]),
-                "tile": modland_tile_from_filename(Path(granule.data_links()[0]).name),
+                "tile": modland_tile_from_filename(self._granule_filename(granule)),
+                "mission": mission_from_filename(self._granule_filename(granule)),
                 "granule": granule,
             }
             for granule in granules
         ])
 
-        self._granules = pd.concat([self._granules, data]).drop_duplicates(subset=["date_UTC", "tile"])
+        if len(data) == 0:
+            return
+
+        priority_index = {mission: idx for idx, mission in enumerate(self.active_missions)}
+
+        combined = pd.concat([self._granules, data], ignore_index=True)
+        combined["priority"] = combined["mission"].map(lambda value: priority_index.get(value, len(priority_index)))
+        combined = combined.sort_values(by=["date_UTC", "tile", "priority"])
+        self._granules = combined.drop_duplicates(subset=["date_UTC", "tile"], keep="first").drop(columns=["priority"])
 
     def download_granules(self, granules: List[earthaccess.search.DataGranule]) -> List[str]:
         # Check if any of the granules have already been downloaded, and if so record the file path for that granule.
@@ -1211,13 +1436,7 @@ class VNP09GA:
         granules_to_download = []
         output_paths = []
         for granule in granules:
-            date_UTC = get_date(granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"])
-            output_file_path = join(
-                self.download_directory,
-                "VNP09GA",
-                f"{date_UTC:%Y.%m.%d}",
-                Path(granule.data_links()[0]).name
-            )
+            output_file_path = self._download_output_path(granule)
             if Path(output_file_path).exists():
                 output_paths.append(output_file_path)
             else:
@@ -1246,15 +1465,9 @@ class VNP09GA:
                         if download_exception is None:
                             download_exception = download_file_path
                         continue
-                    date_UTC = get_date(granule["umm"]["TemporalExtent"]["RangeDateTime"]["BeginningDateTime"])
 
                     download_file_path = Path(download_file_path)
-                    output_file_path = join(
-                        self.download_directory,
-                        "VNP09GA",
-                        f"{date_UTC:%Y.%m.%d}",
-                        download_file_path.name
-                    )
+                    output_file_path = self._download_output_path(granule)
                     Path(output_file_path).parent.mkdir(parents=True, exist_ok=True)
                     download_file_path.rename(output_file_path)
 
@@ -1284,10 +1497,10 @@ class VNP09GA:
             end_date: Union[date, str],
             geometry: Point or Polygon or RasterGeometry = None):
         # Fetch list of granules to download
-        granules = VIIRS_CMR_query(
-            start_date,
-            end_date,
-            geometry,
+        granules = self._search_with_fallback(
+            start_date=start_date,
+            end_date=end_date,
+            geometry=geometry,
         )
 
         self.add_granules(granules)
@@ -1305,7 +1518,7 @@ class VNP09GA:
         if len(subset) > 0:
             return subset.iloc[0].granule
 
-        granules = VIIRS_CMR_query(
+        granules = self._search_with_fallback(
             start_date=date_UTC,
             end_date=date_UTC,
             tile=tile,
